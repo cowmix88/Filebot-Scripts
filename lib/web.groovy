@@ -66,6 +66,13 @@ class PushBulletClient {
 	def endpoint_pushes = new URL('https://api.pushbullet.com/v2/pushes')
 	def endpoint_upload = new URL('https://api.pushbullet.com/v2/upload-request')
 
+	def sendNote = { title = 'filebot', body = null, email = null ->
+		def requestProperties = [Authorization: 'Basic '+apikey.getBytes().encodeBase64()]
+
+		def pushFileData = [type: 'note', title: title, body: body, email: email]
+		endpoint_pushes.post(pushFileData, requestProperties)
+	}
+
 	def sendFile = { file_name, file_content, file_type, body = null, email = null ->
 		def requestProperties = [Authorization: 'Basic '+apikey.getBytes().encodeBase64()]
 		

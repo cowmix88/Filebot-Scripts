@@ -2,9 +2,10 @@
 
 
 // log input parameters
-_def.each{ n, v -> log.finer('Parameter: ' + [n, n =~ /pushover|pushbullet|mail|myepisodes/ ? '*****' : v].join(' = ')) }
+_def.each{ n, v -> log.finer('Parameter: ' + [n, n =~ /pushover|pushbullet|mail|myepisodes|sonarr|potato|plex/ ? '*****' : v].join(' = ')) }
 args.each{ log.finer("Argument: $it") }
 
+def output = __args[__args.findIndexOf{ it == "--output"} + 1]
 
 // initialize variables
 def input = []
@@ -403,6 +404,59 @@ def groups = input.groupBy{ f ->f
 	return [tvs: tvs, mov: mov, anime: null]
 }
 
+def removeOld = { files ->
+	if (output){
+		files.each{ file ->
+			if (file.isVideo()) {
+				def prefix = file.name.substring(0,file.name.indexOf('['))
+				log.info("Prefix: " + prefix)
+				def list = []
+				file.parentFile.eachFile(FileType.FILES) { f ->
+					log.info(f.name)
+					if (f.name.startsWith(prefix) && f.isVideo()) 
+						list << f
+				}
+
+				if (list.size() > 1){
+					log.info("Found duplicates: " + list)
+
+					list = list.collect{ f ->
+						def media = new net.filebot.format.MediaBindingBean(null, f)
+						def vf = media.getVideoFormat().replaceAll("[\\D]", "").toInteger()
+						def af = media.getAudioChannels().split().collect{ it.replaceAll("[\\D]", "").toInteger() }.sort().last()
+						def sort = "$vf.$af".toDouble()
+						log.info("Sort duplicates by quality: [$f.name] => [$sort]")
+						return [file:f, sort:sort]
+					}.sort{ it.sort }
+
+					def best = list.pop()
+
+					log.info("Best quality: " + best)
+
+					if (best.sort == list.last().sort){
+						if (pushbullet) {
+							list.push(best)
+							PushBullet(pushbullet).sendNote('Filebot requests fixing duplicates manually', "[$file.name] => ${list*.file}", tryQuietly{ mailto })
+						}
+					} else {
+
+						list.each{
+							def f = it.file
+							if (f.canonicalFile.toString().contains(output)){
+								log.info("Remove worse quality: " + f)
+								def fs = new File(f.canonicalFile.toString().replace(output, output + '/.recycle'))
+								fs.parentFile.mkdirs()
+								f.renameTo(fs); 
+							}
+						}
+					}
+
+				}
+			}
+		}
+	}
+}
+
 // group entries by unique tvs/mov descriptor
 groups = groups.groupBy{ group, files -> group.collectEntries{ type, query -> [type, query ? query.toString().ascii().normalizePunctuation().lower() : null] } }.collectEntries{ group, maps -> [group, maps.values().flatten()] }
 
@@ -518,6 +572,9 @@ groups.each{ group, files ->
 				fetchSeriesArtworkAndNfo(hasSeasonFolder ? dir.dir : dir, dir, series, sxe && sxe.season > 0 ? sxe.season : 1)
 			}
 		}
+
+		if (dest) removeOld(dest)
+
 		if (dest == null && failOnError) {
 			fail("Failed to rename series: $config.name")
 		}
@@ -590,6 +647,9 @@ groups.each{ group, files ->
 				}
 			}
 		}
+
+		if (dest) removeOld(dest)
+
 		if (dest == null && failOnError) {
 			fail("Failed to rename movie: $group.mov")
 		}
@@ -716,7 +776,7 @@ groups.each{ group, files ->
 
 			log.info("Search Paths: " + list.toString())
 			list.each{
-				it.eachFileMatch(~/.*\.jpg|png|jpeg$/) { file ->
+				it.eachFileMatch(FileType.FILES, ~/.*\.jpg|png|jpeg$/) { file ->
 					log.info('Found image in folder path: ' + file.getName())
 					def type = detectType(file)
 					if (!folder || folder.type < type){
