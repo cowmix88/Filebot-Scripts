@@ -55,13 +55,13 @@ def ignore = tryQuietly{ ignore } ?: null
 def minFileSize = tryQuietly{ minFileSize.toLong() }; if (minFileSize == null) { minFileSize = 50 * 1000L * 1000L }
 def minLengthMS = tryQuietly{ minLengthMS.toLong() }; if (minLengthMS == null) { minLengthMS = 10 * 60 * 1000L }
 
-// series/anime/movie format expressions
 def format = [
-	tvs:   tryQuietly{ seriesFormat }, /*?: '''TV Shows/{n}/{episode.special ? 'Special' : 'Season '+s.pad(2)}/{n} - {episode.special ? 'S00E'+special.pad(2) : s00e00} - {t.replaceAll(/[`´‘’ʻ]/, /'/).replaceAll(/[!?.]+$/).replacePart(', Part $1')}{'.'+lang}''',*/
-	anime: tryQuietly{ animeFormat  }, /*?: '''Anime/{primaryTitle}/{primaryTitle} - {sxe} - {t.replaceAll(/[!?.]+$/).replaceAll(/[`´‘’ʻ]/, /'/).replacePart(', Part $1')}''',*/
-	mov:   tryQuietly{ movieFormat  }, /*?: '''Movies/{n} ({y})/{n} ({y}){' CD'+pi}{'.'+lang}''',*/
-	music: tryQuietly{ musicFormat  }  /*?: '''Music/{n}/{album+'/'}{pi.pad(2)+'. '}{artist} - {t}'''*/
+	tvs:   tryQuietly{ seriesFormat } ?: '''TV Shows/{n}/{episode.special ? 'Special' : 'Season '+s.pad(2)}/{n} - {episode.special ? 'S00E'+special.pad(2) : s00e00} - {t.replaceAll(/[`´‘’ʻ]/, /'/).replaceAll(/[!?.]+$/).replacePart(', Part $1')}{'.'+lang}''',
+	anime: tryQuietly{ animeFormat  } ?: '''Anime/{n}/{episode.special ? 'Special' : 'Season '+s.pad(2)}/{primaryTitle} - {sxe} - {t.replaceAll(/[!?.]+$/).replaceAll(/[`´‘’ʻ]/, /'/).replacePart(', Part $1')}''',
+	mov:   tryQuietly{ movieFormat  } ?: '''Movies/{n} ({y})/{n} ({y}){' CD'+pi}{'.'+lang}''',
+	music: tryQuietly{ musicFormat  } ?: '''Music/{n}/{album+'/'}{pi.pad(2)+'. '}{artist} - {t}'''
 ]
+/*'*/
 
 // force movie/series/anime logic
 def forceMovie = { f ->
