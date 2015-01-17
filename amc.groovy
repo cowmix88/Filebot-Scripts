@@ -2,7 +2,7 @@
 
 
 // log input parameters
-_def.each{ n, v -> log.finer('Parameter: ' + [n, n =~ /pushover|pushbullet|mail|myepisodes|sonarr|potato|plex/ ? '*****' : v].join(' = ')) }
+_def.each{ n, v -> log.finer('Parameter: ' + [n, n =~ /pushover|pushbullet|mail|myepisodes|sonarr|potato|plex|langdetect/ ? '*****' : v].join(' = ')) }
 args.each{ log.finer("Argument: $it") }
 
 def output = __args[__args.findIndexOf{ it == "--output"} + 1]
@@ -49,6 +49,8 @@ def mail = tryQuietly{ mail.split(':', 3) }
 def pushover = tryQuietly{ pushover.toString() }
 def pushbullet = tryQuietly{ !'TEST'.equalsIgnoreCase(_args.action) ? pushbullet.toString() : null }
 def reportError = tryQuietly{ reportError.toBoolean() }
+
+def langdetect = tryQuietly{ langdetect.toString() }
 
 // user-defined filters
 def label = tryQuietly{ ut_label } ?: null
@@ -404,7 +406,7 @@ def groups = input.groupBy{ f ->f
 	return [tvs: tvs, mov: mov, anime: null]
 }
 
-def removeOld = { files ->
+def postProcess = { files ->
 	if (output){
 		files.each{ file ->
 			if (file.isVideo()) {
@@ -445,12 +447,70 @@ def removeOld = { files ->
 							if (f.canonicalFile.toString().contains(output)){
 								log.info("Remove worse quality: " + f)
 								def fs = new File(f.canonicalFile.toString().replace(output, output + '/.recycle'))
+								log.info(f.canonicalFile.toString() + ", writable: " + f.canWrite())
+								log.info(fs.canonicalFile.toString() + ", writable: " + fs.parentFile.canWrite())
 								fs.parentFile.mkdirs()
-								f.renameTo(fs); 
+								log.info(fs.canonicalFile.toString() + ", writable: " + fs.parentFile.canWrite())
+								f.renameTo(fs) 
 							}
 						}
 					}
 
+				}
+			} else if (file.isSubtitle() && langdetect && file.exists()) {
+
+				def ext = file.getExtension()
+				def name = file.getNameWithoutExtension()
+
+				log.info("Found subtitle, checking if language is set. [$file.name]")
+
+				if (name != ~/\.\w{2,3}$/) {
+
+					log.info("Language not set, detecting language.")
+
+					def text = ""
+					BufferedReader r = new BufferedReader(new FileReader(file));
+					String line;
+					for ( int ln = 0; (line = r.readLine()) != null && ln <= 25; ln++ ) {
+						text += " " + line.replaceAll(/<[^>]+>/, '').replaceAll(/[^\p{L}\s]/, '').trim()
+					}
+					r.close();
+
+					text = text.replaceAll(/\s{2,}/, ' ').trim();
+
+					log.info("Found subtitle text: " + text)
+
+					if (text) {
+
+						def url = 'http://ws.detectlanguage.com/0.2/detect?q=' + java.net.URLEncoder.encode(text) + '&key=' + langdetect
+						def request = WebRequest.fetch(new URL(url))
+						def json = (new groovy.json.JsonSlurper()).parseText(java.nio.charset.Charset.forName("UTF-8").decode(request).toString());			
+						def lang = tryQuietly { json.data.detections[0].language }
+						def isReliable = tryQuietly { json.data.detections[0].isReliable }
+
+						if (lang) {
+
+							if (isReliable) {
+								log.info("Language detected: [$lang]")
+
+								def move = new File (file.parentFile.toString() + "/" + name + '.' + lang + '.' + ext)
+
+								log.info("Renaming file: [$move.name]")
+
+								file.renameTo(move)
+							} else {
+								log.info("Language detection was not relaible.")
+							}
+
+						} else {
+							log.info("Language detection failed.")
+						}
+
+					} else {
+						log.info("Unable to read text in subtitle file.")
+					}
+				} else {
+					log.info("Subtitle set.")
 				}
 			}
 		}
@@ -573,7 +633,7 @@ groups.each{ group, files ->
 			}
 		}
 
-		if (dest) removeOld(dest)
+		if (dest) postProcess(dest)
 
 		if (dest == null && failOnError) {
 			fail("Failed to rename series: $config.name")
@@ -648,7 +708,7 @@ groups.each{ group, files ->
 			}
 		}
 
-		if (dest) removeOld(dest)
+		if (dest) postProcess(dest)
 
 		if (dest == null && failOnError) {
 			fail("Failed to rename movie: $group.mov")
@@ -780,7 +840,7 @@ groups.each{ group, files ->
 					log.info('Found image in folder path: ' + file.getName())
 					def type = detectType(file)
 					if (!folder || folder.type < type){
-						folder = [image: ImageIO.read(file), ext: file.name.substring(file.name.lastIndexOf('.') + 1), type:type ]
+						folder = [image: ImageIO.read(file), ext: file.getExtension(), type:type ]
 					}
 				}
 			}
