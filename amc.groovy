@@ -49,7 +49,7 @@ def mail = tryQuietly{ mail.split(':', 3) }
 def pushover = tryQuietly{ pushover.toString() }
 def pushbullet = tryQuietly{ !'TEST'.equalsIgnoreCase(_args.action) ? pushbullet.toString() : null }
 def reportError = tryQuietly{ reportError.toBoolean() }
-def subLangFilter = ["en", "eng", "ja", "jpn"]
+def subLangFilter = tryQuietly{ subLangFilter.split(",") }
 def langdetect = tryQuietly{ langdetect.toString() }
 
 def scratchCleanup = []
@@ -374,7 +374,7 @@ input = input.collectNested{ f ->
 				}
 			}
 
-			if (lang in subLangFilter) {
+			if (!subLangFilter || lang in subLangFilter) {
 				return file;
 			} else {
 				return null;
