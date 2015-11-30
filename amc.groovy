@@ -49,8 +49,10 @@ def mail = tryQuietly{ mail.split(':', 3) }
 def pushover = tryQuietly{ pushover.toString() }
 def pushbullet = tryQuietly{ !'TEST'.equalsIgnoreCase(_args.action) ? pushbullet.toString() : null }
 def reportError = tryQuietly{ reportError.toBoolean() }
-
+def subLangFilter = ["en", "eng", "ja", "jpn"]
 def langdetect = tryQuietly{ langdetect.toString() }
+
+def scratchCleanup = []
 
 // user-defined filters
 def label = tryQuietly{ ut_label } ?: null
@@ -97,9 +99,11 @@ def forceAnime = { f ->
 
 def forceAnimeMovie = { f ->
 	( 
-		parseEpisodeNumber(f.name, false) == null || 
-		//f.name =~ "\\(\\d{4}\\)" ||
-		getMediaInfo(file:f, format:'{minutes}').toInteger() > 80
+		parseEpisodeNumber(f.name, false) == null &&
+		(
+			f.name =~ /(?i:Movie)/  ||
+			getMediaInfo(file:f, format:'{minutes}').toInteger() > 70
+		)
 	)
 }
 
@@ -124,7 +128,11 @@ def forceIgnore = { f ->
 }
 
 def forceDVDOrder = { f ->
-	f.dir.listPath().any{ it.name =~ /(?i:bd|dvd|bluray|bdrip|dvdrip)/ }  || f.name =~ /(?i:bd|dvd|bluray|bdrip|dvdrip)/
+	f.dir.listPath().any{ it.name =~ /(?i:bd|dvd|bluray|bdrip|dvdrip|blu-ray)/ }  || f.name =~ /(?i:bd|dvd|bluray|bdrip|dvdrip|blu-ray)/
+}
+
+def forceAbsoluteOrder = { f ->
+	f.dir.listPath().any{ it.name =~ /(?<!\])(?!\[)\d{3}/ }
 }
 
 // include artwork/nfo, pushover/pushbullet and ant utilities as required
@@ -200,10 +208,10 @@ if (excludeList?.exists()) {
 // specify how to resolve input folders, e.g. grab files from all folders except disk folders and already processed folders (i.e. folders with movie/tvshow nfo files)
 def resolveInput(f) {
 	// ignore system and hidden folders
-	if (f.isHidden()) {
-		log.finest "Ignore hidden: $f"
-		return []
-	}
+	//if (f.isHidden()) {
+	//	log.finest "Ignore hidden: $f"
+	//	return []
+	//}
 
 	// ignore already processed folders
 	if (f.isDirectory() && f.listFiles().toList().any{ it.name ==~ /movie.nfo|tvshow.nfo/ }) {
@@ -262,14 +270,17 @@ def extractedArchives = []
 def tempFiles = []
 input = input.flatten{ f ->
 	if (!skipExtract && (f.isArchive() || f.hasExtension('001'))) {
-		def extractDir = new File(f.dir, f.nameWithoutExtension)
-		def extractFiles = extract(file: f, output: new File(extractDir, f.dir.name), conflict: 'auto', filter: { it.isArchive() || it.isVideo() || (music && it.isAudio()) }, forceExtractAll: true) ?: []
+		def extractDir = new File(f.dir, '/.scratch/' + f.nameWithoutExtension)
+		extractDir.mkdirs()
+		def extractFiles = extract(file: f, output: extractDir, conflict: 'auto', filter: { it.isArchive() || it.isVideo() || it.isSubtitle() || (music && it.isAudio()) }, forceExtractAll: true) ?: []
 
 		if (extractFiles.size() > 0) {
 			extractedArchives += f
 			tempFiles += extractDir
 			tempFiles += extractFiles
 		}
+
+		scratchCleanup.push(extractDir.parentFile);
 		return extractFiles
 	}
 	return f
@@ -298,6 +309,41 @@ def relativeInputPath = { f ->
 }
 
 
+def detectLanguage = { file ->
+	def text = ""
+	BufferedReader r = new BufferedReader(new FileReader(file));
+	String line;
+	for ( int ln = 0; (line = r.readLine()) != null && ln <= 25; ln++ ) {
+		text += " " + line.replaceAll(/<[^>]+>/, '').replaceAll(/[^\p{L}\s]/, '').trim()
+	}
+	r.close();
+
+	text = text.replaceAll(/\s{2,}/, ' ').trim();
+
+	log.info("Found subtitle text: " + text)
+
+	if (text) {
+
+		def url = 'http://ws.detectlanguage.com/0.2/detect?q=' + java.net.URLEncoder.encode(text) + '&key=' + langdetect
+		def request = WebRequest.fetch(new URL(url))
+		def json = (new groovy.json.JsonSlurper()).parseText(java.nio.charset.Charset.forName("UTF-8").decode(request).toString());			
+		def lang = tryQuietly { json.data.detections[0].language }
+		def isReliable = tryQuietly { json.data.detections[0].isReliable }
+
+		if (lang && isReliable) {
+			log.info("Language detected: [$lang]")
+			return lang
+		} else {
+			log.info("Language detection failed.")
+		}
+
+	} else {
+		log.info("Unable to read text in subtitle file.")
+	}
+
+	return null;
+}
+
 // keep original input around so we can print excluded files later
 def originalInputSet = input as LinkedHashSet
 
@@ -311,7 +357,35 @@ input = input.findAll{ f -> !(relativeInputPath(f) =~ /(?<=\b|_)(?i:sample|trail
 input = input.findAll{ f -> !(f.isVideo() && ((minFileSize > 0 && f.length() < minFileSize) || (minLengthMS > 0 && tryQuietly{ getMediaInfo(file:f, format:'{duration}').toLong() < minLengthMS }))) }
 
 // ignore subtitles files that are not stored in the same folder as the movie
-input = input.findAll{ f -> !(f.isSubtitle() && !f.parentFile.listFiles{ it.isVideo() }.any{ f.isDerived(it) }) }
+input = input.collectNested{ f -> 
+	if (f.isSubtitle()) {
+		if (f.parentFile.listFiles{ it.isVideo() }.any{ f.isDerived(it) } || f.parentFile.name.toLowerCase().contains('sub')) {
+			def file = f
+			def lang = tryQuietly{ new net.filebot.format.MediaBindingBean(null, f, null).detectSubtitleLanguage() }
+			log.fine("[$f.name] => [$lang]");
+			if (!lang) {
+				lang = detectLanguage(f);
+				if (lang) {
+					def move = new File (f.parentFile.toString() + "/.scratch/" + f.getNameWithoutExtension() + '.' + lang + '.' + f.getExtension())
+					move.mkdirs()	
+					Files.copy(f.toPath(), move.toPath(), StandardCopyOption.REPLACE_EXISTING)
+					scratchCleanup.push(move.parentFile);
+					file = move;
+				}
+			}
+
+			if (lang in subLangFilter) {
+				return file;
+			} else {
+				return null;
+			}
+		} else {
+			return null;
+		}
+	}
+
+	return f;
+}.grep{ return it }
 
 
 // print exclude and input sets for logging
@@ -330,6 +404,22 @@ def groups = input.groupBy{ f ->f
 		return []
 	if (music && forceAudio(f)) // process audio only if music mode is enabled
 		return [music: f.dir.name]
+
+	if (forceAnime(f)){
+		def anime = (detectSeriesName(f, false, true) ?: detectSeriesName(input.findAll{ s -> f.dir == s.dir && s.isVideo() }, false, true)) ?: f.name.replaceFirst(/\.[^.]+$/, '').replaceFirst(/-(?![^\(\[]*[\)\]]).+$/, '').findAll(/[a-zA-Z0-9]+(?![^\(\[]*[\)\]])/)
+		if (forceAnimeMovie(f)) {
+			return [anime: anime, mov: detectMovie(f, false)]
+		} else { //if (forceAnimeSeries(f)) {
+			def order = "airdate"
+			if (forceAbsoluteOrder(f)){
+				order = "absolute";	
+			} else if (forceDVDOrder(f)){
+				order = "dvd"
+			}
+			return [order: order, anime: anime]
+		}
+	}
+		
 	if (forceMovie(f)){
 		/*if (forceAnimeMovie(f)){
 			def mov = detectMovie(f, false)
@@ -344,14 +434,7 @@ def groups = input.groupBy{ f ->f
 		}
 		return [order: order, tvs:   detectSeriesName(f, true, false) ?: detectSeriesName(input.findAll{ s -> f.dir == s.dir && s.isVideo() }, true, false)]
 	}
-	if (forceAnime(f)){
-		def anime = (detectSeriesName(f, false, true) ?: detectSeriesName(input.findAll{ s -> f.dir == s.dir && s.isVideo() }, false, true)) ?: f.name.replaceFirst(/\.[^.]+$/, '').replaceFirst(/-(?![^\(\[]*[\)\]]).+$/, '').findAll(/[a-zA-Z0-9]+(?![^\(\[]*[\)\]])/)
-		if (forceAnimeMovie(f)) {
-			return [anime: anime, mov: detectMovie(f, false)]
-		} else { //if (forceAnimeSeries(f)) {
-			return [anime: anime]
-		}
-	}
+
 	
 	def tvs = detectSeriesName(f, true, false)
 	def mov = detectMovie(f, false)
@@ -411,8 +494,13 @@ def postProcess = { files ->
 		files.each{ file ->
 			if (file.isVideo()) {
 				def prefix = file.name.substring(0,file.name.indexOf('['))
-				log.info("Prefix: " + prefix)
+				//log.info("Prefix: " + prefix)
 				def list = []
+
+				if (!file.parentFile.exists()) {
+					return;
+				}
+
 				file.parentFile.eachFile(FileType.FILES) { f ->
 					log.info(f.name)
 					if (f.name.startsWith(prefix) && f.isVideo()) 
@@ -442,75 +530,21 @@ def postProcess = { files ->
 						}
 					} else {
 
-						list.each{
-							def f = it.file
-							if (f.canonicalFile.toString().contains(output)){
-								log.info("Remove worse quality: " + f)
-								def fs = new File(f.canonicalFile.toString().replace(output, output + '/.recycle'))
-								log.info(f.canonicalFile.toString() + ", writable: " + f.canWrite())
-								log.info(fs.canonicalFile.toString() + ", writable: " + fs.parentFile.canWrite())
-								fs.parentFile.mkdirs()
-								log.info(fs.canonicalFile.toString() + ", writable: " + fs.parentFile.canWrite())
-								f.renameTo(fs) 
+						list.each {
+							def name = it.file.getNameWithoutExtension();
+							it.file.parentFile.eachFile(FileType.FILES) { f ->
+								if (f.canonicalFile.toString().contains(output) && f.canonicalFile.toString().contains(name)){
+									log.info("Remove worse quality: " + f)
+									def fs = new File(f.canonicalFile.toString().replace(output, output + '/.recycle'))
+									log.info(f.canonicalFile.toString() + ", writable: " + f.canWrite())
+									fs.parentFile.mkdirs()
+									log.info(fs.canonicalFile.toString() + ", writable: " + fs.parentFile.canWrite())
+									f.renameTo(fs) 
+								}
 							}
 						}
 					}
 
-				}
-			} else if (file.isSubtitle() && langdetect && file.exists()) {
-
-				def ext = file.getExtension()
-				def name = file.getNameWithoutExtension()
-
-				log.info("Found subtitle, checking if language is set. [$file.name]")
-
-				if (name != ~/\.\w{2,3}$/) {
-
-					log.info("Language not set, detecting language.")
-
-					def text = ""
-					BufferedReader r = new BufferedReader(new FileReader(file));
-					String line;
-					for ( int ln = 0; (line = r.readLine()) != null && ln <= 25; ln++ ) {
-						text += " " + line.replaceAll(/<[^>]+>/, '').replaceAll(/[^\p{L}\s]/, '').trim()
-					}
-					r.close();
-
-					text = text.replaceAll(/\s{2,}/, ' ').trim();
-
-					log.info("Found subtitle text: " + text)
-
-					if (text) {
-
-						def url = 'http://ws.detectlanguage.com/0.2/detect?q=' + java.net.URLEncoder.encode(text) + '&key=' + langdetect
-						def request = WebRequest.fetch(new URL(url))
-						def json = (new groovy.json.JsonSlurper()).parseText(java.nio.charset.Charset.forName("UTF-8").decode(request).toString());			
-						def lang = tryQuietly { json.data.detections[0].language }
-						def isReliable = tryQuietly { json.data.detections[0].isReliable }
-
-						if (lang) {
-
-							if (isReliable) {
-								log.info("Language detected: [$lang]")
-
-								def move = new File (file.parentFile.toString() + "/" + name + '.' + lang + '.' + ext)
-
-								log.info("Renaming file: [$move.name]")
-
-								file.renameTo(move)
-							} else {
-								log.info("Language detection was not relaible.")
-							}
-
-						} else {
-							log.info("Language detection failed.")
-						}
-
-					} else {
-						log.info("Unable to read text in subtitle file.")
-					}
-				} else {
-					log.info("Subtitle set.")
 				}
 			}
 		}
@@ -552,23 +586,46 @@ groups.each{ group, files ->
 		// choose series / anime config
 		def config
 		def dest
+		log.info "Using TV Order: " + group.order
 		if (group.tvs){
-			log.info "Using TV Order: " + group.order
 			config = [name:group.tvs,   format:format.tvs,   db:'TheTVDB']
 			dest = rename(file: files, format: config.format, db: config.db, order: group.order)
 		} else {
 			//files.mapByFolder().each{ dir, fs ->
 				def season = ''
 				def tvdbname = ''
+				def animeTitle = ''
 				def aformat = format.anime
 				def seriesName = group.anime//detectSeriesName(files, true, false)
 				def options = AniDB.search(seriesName, _args.locale)
-				if (!options.isEmpty()) {
-					def anime = options.sortBySimilarity(seriesName, { s -> s.name }).get(0)
-					def animeid = anime.getAnimeId()
-					def animeTitle = anime.getPrimaryTitle()
+				def date = new net.filebot.web.SimpleDate(files.get(0).lastModified());
+                log.info "Using Series Name: ${seriesName}"
+                log.info "First File Date: ${date}"
 
-					log.info "Found: Anime Series in AniDb: [$animeid] => [$animeTitle]"
+				if (!options.isEmpty()) {
+                    
+					log.info "Found Anime Series in AniDb => ${options*.primaryTitle}"
+                    
+                    //log.info "Properties Returned => [${anime.properties}]"
+
+                    options.each{ series ->
+						series.metaClass.score = new Double(0);
+						series.effectiveNames.each{ name ->
+							series.score = series.score + name.getSimilarity(seriesName);
+						}
+					}
+
+					def sorted = options.sort{ -it.score }
+
+                    //log.info "Animes Sorted by Similarity: ${sorted*.primaryTitle}"
+
+                    // filter by date
+					def anime = sorted.find{ AniDB.getSeriesData(it, net.filebot.web.SortOrder.forName(group.order), _args.locale).seriesInfo.startDate < date }
+
+					def animeid = anime.getAnimeId()
+					animeTitle = anime.getPrimaryTitle()
+
+					log.info "Using Anime Series in AniDb: [$animeid] => [$animeTitle]"
 
 					def dom
 					def search
@@ -598,17 +655,26 @@ groups.each{ group, files ->
 						log.warning "Failed: Mapping AniDb to TVDB Name & Season: [$animeid] => [$tvdbid, Season: $season] => [?]"
 					}		
 				} else {
-					log.warning "Failed: Anime Series not found in AniDb: [seriesName]"
+					log.warning "Failed: Anime Series not found in AniDb: [$seriesName]"
 				}
 
 				config = [name:group.anime,   format:aformat,   db:'TheTVDB']
 
+				// fix absolute
+				if (group.order == "absolute") {
+					files = rename(file:files.sort(), action:'hardlink', format:files.get(0).parent + '/.scratch/{n} -  {[e.pad(5)]} - {t} - {[d]}', query:animeTitle, db:'AniDB', order:'absolute')
+					if (files != null && !files.empty) {
+						scratchCleanup.addAll(files);
+					}
+					group.order = "airdate"
+				}
+
 				if (tvdbname.isEmpty()) {
-					dest = rename(file: files, format: config.format, db: config.db)
+					dest = rename(file: files, format: config.format, db: config.db, order: group.order)
 				} else if (season.isEmpty()){
-					dest = rename(file: files, format: config.format, db: config.db, query: tvdbname)
+					dest = rename(file: files, format: config.format, db: config.db, query: tvdbname, order: group.order)
 				} else {
-					dest = rename(file: files, format: config.format, db: config.db, query: tvdbname, filter:"s == $season")
+					dest = rename(file: files, format: config.format, db: config.db, query: tvdbname, filter:"s == $season", order: group.order)
 				}
 			//}
 			//[name:group.anime, format:format.anime, db:'AniDB']
@@ -719,6 +785,8 @@ groups.each{ group, files ->
 	else if (group.music) {
 		def filesCopy = files.collect{ file ->
 			def path = Paths.get(file.parent + '/.scratch/' + file.name)
+			scratchCleanup.push(path.toFile().parentFile)
+
 			path.toFile().getParentFile().mkdirs()
 			if (Files.exists(path.toFile().getParentFile().toPath())){
 				Files.copy(file.toPath(), path, StandardCopyOption.REPLACE_EXISTING)
@@ -844,11 +912,6 @@ groups.each{ group, files ->
 					}
 				}
 			}
-		}
-
-		filesCopy.mapByFolder().each{ dir, fs ->
-			if (dir.toString().contains('.scratch'))
-				dir.deleteDir()
 		}
 
 		if (dest && folder) {
@@ -1052,6 +1115,19 @@ if (getRenameLog().size() > 0) {
 
 // ---------- CLEAN UP ---------- //
 
+scratchCleanup.unique().each { f ->
+	if (f.exists() && f.toString().contains('.scratch')) {
+		if (f.isFile()) {
+			def parent = f.parentFile;
+			f.delete();
+			if(parent.list().length>0 && parent.toString().contains('.scratch')){
+				parent.deleteDir();
+			}
+		} else if (f.isDirectory()) {
+			f.deleteDir();
+		}
+	}
+}
 
 // clean up temporary files that may be left behind after extraction
 if (deleteAfterExtract) {
