@@ -322,7 +322,7 @@ def detectLanguage = { file ->
 
 	log.info("Found subtitle text: " + text)
 
-	if (text) {
+	if (text && langdetect) {
 
 		def url = 'http://ws.detectlanguage.com/0.2/detect?q=' + java.net.URLEncoder.encode(text) + '&key=' + langdetect
 		def request = WebRequest.fetch(new URL(url))
