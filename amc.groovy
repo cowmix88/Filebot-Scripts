@@ -667,7 +667,7 @@ groups.each{ group, files ->
 
 				// fix absolute
 				if (group.order == "absolute") {
-					files = rename(file:files.sort(), action:'hardlink', format:files.get(0).parent + '/.scratch/{n} -  {[e.pad(5)]} - {t} - {[d]}', query:animeTitle, db:'AniDB', order:'absolute')
+					files = rename(file:files.sort(), action:'hardlink', format:files.get(0).parent + '/.scratch/{fn.replaceAll(/(?<!\\])(?!\\[)(\\d{3})/, "E\\$1")}', query:animeTitle, db:'AniDB', order:'absolute')
 					if (files != null && !files.empty) {
 						scratchCleanup.addAll(files);
 					}
