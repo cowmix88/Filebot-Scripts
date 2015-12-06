@@ -308,8 +308,8 @@ def relativeInputPath = { f ->
 	return f.name
 }
 
-
 def detectLanguage = { file ->
+
 	def text = ""
 	BufferedReader r = new BufferedReader(new FileReader(file));
 	String line;
@@ -360,6 +360,11 @@ input = input.findAll{ f -> !(f.isVideo() && ((minFileSize > 0 && f.length() < m
 input = input.collectNested{ f -> 
 	if (f.isSubtitle()) {
 		if (f.parentFile.listFiles{ it.isVideo() }.any{ f.isDerived(it) } || f.parentFile.name.toLowerCase().contains('sub')) {
+
+			if (f.getExtension() == 'idx' || f.getExtension() == 'sub'){
+				return f;
+			}
+
 			def file = f
 			def lang = tryQuietly{ new net.filebot.format.MediaBindingBean(null, f, null).detectSubtitleLanguage() }
 			log.fine("[$f.name] => [$lang]");
