@@ -668,17 +668,16 @@ groups.each{ group, files ->
 				// fix absolute
 				if (group.order == "absolute") {
 
-					StandardRenameAction.forName('TEST'.equalsIgnoreCase(_args.action) ? 'test' : 'hardlink')
 					def pattern = Pattern.compile("(?<!\\])(?!\\[)(\\d{3})", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE)
-					def renamePlan = [:]
+					def renamed = []
 
 					files.each{ f ->
-						renamePlan[f] = f.parent + '/.scratch/' + pattern.matcher(f.nameWithoutExtension).replaceAll("E\$1") + '.' + f.extension as File
+						def file = f.parent + '/.scratch/' + pattern.matcher(f.nameWithoutExtension).replaceAll("E\$1") + '.' + f.extension as File
+						Files.createLink(Paths.get(file.path), Paths.get(f.path));
+						renamed.push(file)
 					}
 
-					files = rename(map:renamePlan);
-
-					StandardRenameAction.forName(_args.action)
+					files = renamed
 
 					//files = rename(file:files.sort(), action:'hardlink', format:files.get(0).parent + '/.scratch/{fn.replaceAll(/(?<!\\])(?!\\[)(\\d{3})/, "E\\$1")}', query:animeTitle, db:'AniDB', order:'absolute')
 					if (files != null && !files.empty) {
