@@ -498,7 +498,14 @@ def postProcess = { files ->
 	if (output){
 		files.each{ file ->
 			if (file.isVideo()) {
-				def prefix = file.name.substring(0,file.name.indexOf('['))
+				
+				def prefix = file.name.indexOf('[')
+				if (prefix > -1) {
+					prefix = file.name.substring(0,file.name.indexOf('['))
+				} else {
+					prefix = ""
+				}
+
 				//log.info("Prefix: " + prefix)
 				def list = []
 
