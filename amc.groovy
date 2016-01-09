@@ -501,7 +501,7 @@ def postProcess = { files ->
 				
 				def prefix = file.name.indexOf('[')
 				if (prefix > -1) {
-					prefix = file.name.substring(0,file.name.indexOf('['))
+					prefix = file.name.substring(0,prefix)
 				} else {
 					prefix = ""
 				}
