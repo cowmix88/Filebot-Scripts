@@ -99,11 +99,11 @@ def forceAnime = { f ->
 
 def forceAnimeMovie = { f ->
 	( 
-		parseEpisodeNumber(f.name, false) == null &&
-		(
+		//parseEpisodeNumber(f.name, false) == null &&
+		//(
 			f.name =~ /(?i:Movie)/  ||
 			getMediaInfo(file:f, format:'{minutes}').toInteger() > 70
-		)
+		//)
 	)
 }
 
@@ -411,7 +411,7 @@ def groups = input.groupBy{ f ->f
 		return [music: f.dir.name]
 
 	if (forceAnime(f)){
-		def anime = (detectSeriesName(f, false, true) ?: detectSeriesName(input.findAll{ s -> f.dir == s.dir && s.isVideo() }, false, true)) ?: f.name.replaceFirst(/\.[^.]+$/, '').replaceFirst(/-(?![^\(\[]*[\)\]]).+$/, '').findAll(/[a-zA-Z0-9]+(?![^\(\[]*[\)\]])/)
+		def anime = (detectAnimeName(f) ?: detectAnimeName(input.findAll{ s -> f.dir == s.dir && s.isVideo() }, false, true)) ?: f.name.replaceFirst(/\.[^.]+$/, '').replaceFirst(/-(?![^\(\[]*[\)\]]).+$/, '').findAll(/[a-zA-Z0-9]+(?![^\(\[]*[\)\]])/)
 		if (forceAnimeMovie(f)) {
 			return [anime: anime, mov: detectMovie(f, false)]
 		} else { //if (forceAnimeSeries(f)) {
@@ -437,11 +437,11 @@ def groups = input.groupBy{ f ->f
 		if (forceDVDOrder(f)){
 			order = "dvd"
 		}
-		return [order: order, tvs:   detectSeriesName(f, true, false) ?: detectSeriesName(input.findAll{ s -> f.dir == s.dir && s.isVideo() }, true, false)]
+		return [order: order, tvs:   detectSeriesName(f) ?: detectSeriesName(input.findAll{ s -> f.dir == s.dir && s.isVideo() })]
 	}
 
 	
-	def tvs = detectSeriesName(f, true, false)
+	def tvs = detectSeriesName(f)
 	def mov = detectMovie(f, false)
 	log.fine("$f.name [series: $tvs, movie: $mov]")
 	
@@ -498,7 +498,7 @@ def postProcess = { files ->
 	if (output){
 		files.each{ file ->
 			if (file.isVideo()) {
-				
+
 				def prefix = file.name.indexOf('[')
 				if (prefix > -1) {
 					prefix = file.name.substring(0,prefix)
@@ -615,8 +615,8 @@ groups.each{ group, files ->
                 log.info "First File Date: ${date}"
 
 				if (!options.isEmpty()) {
-                    
-					log.info "Found Anime Series in AniDb => ${options*.primaryTitle}"
+
+					log.info "Found Anime Series in AniDb => ${options*.name}"
                     
                     //log.info "Properties Returned => [${anime.properties}]"
 
@@ -634,8 +634,8 @@ groups.each{ group, files ->
                     // filter by date
 					def anime = sorted.find{ AniDB.getSeriesData(it, net.filebot.web.SortOrder.forName(group.order), _args.locale).seriesInfo.startDate < date }
 
-					def animeid = anime.getAnimeId()
-					animeTitle = anime.getPrimaryTitle()
+					def animeid = anime.getId()
+					animeTitle = anime.getName()
 
 					log.info "Using Anime Series in AniDb: [$animeid] => [$animeTitle]"
 
@@ -644,7 +644,11 @@ groups.each{ group, files ->
 					def tvdbid
 
 					try {
-						dom = (new net.filebot.web.CachedXmlResource('https://raw.githubusercontent.com/ScudLee/anime-lists/master/anime-list.xml')).getDocument()
+						dom = Cache.getCache('anime_xml_store', CacheType.Persistent).xml('anime-list.xml') { 
+						   new URL('https://raw.githubusercontent.com/ScudLee/anime-lists/master/'+it)
+						}.expire(Cache.ONE_WEEK).get()
+
+
 						search = net.filebot.util.XPathUtilities.selectNode("anime-list/anime[@anidbid='$animeid']", dom)
 						tvdbid = net.filebot.util.XPathUtilities.selectString("@tvdbid", search).toInteger()
 						season = net.filebot.util.XPathUtilities.selectString("@defaulttvdbseason", search)
@@ -711,7 +715,7 @@ groups.each{ group, files ->
 			dest.mapByFolder().each{ dir, fs ->
 				def hasSeasonFolder = (config.format =~ /(?i)Season/)
 				def sxe = fs.findResult{ eps -> parseEpisodeNumber(eps) }
-				def seriesName = detectSeriesName(fs, true, false)
+				def seriesName = detectSeriesName(fs)
 				def options = TheTVDB.search(seriesName, _args.locale)
 				if (options.isEmpty()) {
 					log.warning "TV Series not found: $config.name"
@@ -740,8 +744,8 @@ groups.each{ group, files ->
 			def options = AniDB.search(movieName, _args.locale)
 			if (!options.isEmpty()) {
 				def anime = options.sortBySimilarity(movieName, { s -> s.name }).get(0)
-				def animeid = anime.getAnimeId()
-				def animeTitle = anime.getPrimaryTitle()
+				def animeid = anime.getId()
+				def animeTitle = anime.getName()
 
 				log.info "Found: Anime in AniDb: [$animeid] => [$animeTitle]"
 
@@ -751,7 +755,10 @@ groups.each{ group, files ->
 				def imdbid
 
 				try {
-					dom = (new net.filebot.web.CachedXmlResource('https://raw.githubusercontent.com/ScudLee/anime-lists/master/anime-list.xml')).getDocument()
+					dom = Cache.getCache('anime_xml_store', CacheType.Persistent).xml('anime-list.xml') { 
+					   new URL('https://raw.githubusercontent.com/ScudLee/anime-lists/master/'+it)
+					}.expire(Cache.ONE_WEEK).get()
+
 					search = net.filebot.util.XPathUtilities.selectNode("anime-list/anime[@anidbid='$animeid']", dom)
 					imdbid = tryQuietly { net.filebot.util.XPathUtilities.selectString("@imdbid", search).replaceFirst('tt', '').toInteger() }
 					tmdbid = tryQuietly { net.filebot.util.XPathUtilities.selectString("@tmdbid", search).toInteger() }
@@ -816,6 +823,7 @@ groups.each{ group, files ->
 				Files.copy(file.toPath(), path, StandardCopyOption.REPLACE_EXISTING)
 				return path.toFile()
 			}
+
 		}
 
 		def folder
