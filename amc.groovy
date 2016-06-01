@@ -84,6 +84,7 @@ def forceSeries = { f ->
 	f.path =~ /(?i:tvs-|tvp-|EP[0-9]{2,3}|Season\D?[0-9]{1,2}\D|(19|20)\d{2}.S\d{2})/
 }
 
+MediaInfo mi
 def forceAnime = { f ->
 	label =~ /^(?i:Anime)/ || 
 	f.dir.listPath().any{ it.name ==~ /(?i:Anime)/ } || 
@@ -92,7 +93,8 @@ def forceAnime = { f ->
 		(
 			f.name =~ /(?i:HorribleSubs)/ || 
 			f.name =~ "[\\(\\[]\\p{XDigit}{8}[\\]\\)]" || 
-			getMediaInfo(file:f, format:'''{media.AudioLanguageList} {media.TextCodecList}''').tokenize().containsAll(['Japanese', 'ASS'])
+			(mi = new MediaInfo().open(f) && mi.get(StreamKind.General, 0, "AudioLanguageList").contains("Japanese") && mi.get(StreamKind.General, 0, "TextCodecList").contains("ASS"))
+			//getMediaInfo(file:f, format:'''{media.AudioLanguageList} {media.TextCodecList}''').tokenize().containsAll(['Japanese', 'ASS'])
 		)
 	)
 }
@@ -608,7 +610,7 @@ groups.each{ group, files ->
 				def tvdbname = ''
 				def animeTitle = ''
 				def aformat = format.anime
-				def seriesName = group.anime//detectSeriesName(files, true, false)
+				def seriesName = group.anime//detectAnimeName(files, true, false)
 				def options = AniDB.search(seriesName, _args.locale)
 				def date = new net.filebot.web.SimpleDate(files.get(0).lastModified());
                 log.info "Using Series Name: ${seriesName}"
