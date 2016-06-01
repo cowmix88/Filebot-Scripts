@@ -114,7 +114,7 @@ public class CustomAcoustID {
 		println ("Skipped: " + skipped.size())
 
 		if (skipped.size() >= files.size()){
-			fail("[$filters.group]: Could not match to any tracks with acoustid")
+			println("[$filters.group]: Could not match to any tracks with acoustid")
 		} else {
 			println ("Trying to match failed acoustid tracks relatives to matched tracks")
 
@@ -151,7 +151,14 @@ public class CustomAcoustID {
 
 			println "Matching Skipped File: [$file.name] => [$title]"
 
-			def dom = (new net.filebot.web.CachedXmlResource('http://musicbrainz.org/ws/2/recording?query=' + java.net.URLEncoder.encode(title.replaceAll(/[\[\]!?.]+/, '')) + '&limit=1')).getDocument()
+			def query = java.net.URLEncoder.encode(title.replaceAll(/[\[\]!?.]+/, ''))
+
+			println "XML Resource: [$file.name] => [$title]"
+
+			dom = Cache.getCache('anime_xml_store', CacheType.Persistent).xml(query) { 
+				   new URL('http://musicbrainz.org/ws/2/recording?query='+it+'&limit=1')
+			}.expire(Cache.ONE_MNOTH).get()
+
 			def recording = net.filebot.util.XPathUtilities.selectNode("metadata/recording-list/recording", dom)
 			title = unescape(net.filebot.util.XPathUtilities.selectString("title", recording))
 
@@ -163,16 +170,21 @@ public class CustomAcoustID {
 
 			if (match.id){
 				println ("$match.id")
-				def release = net.filebot.util.XPathUtilities.selectNode("release-list/release[@id='$match.id']", recording)
+				try {
+					def release = net.filebot.util.XPathUtilities.selectNode("release-list/release[@id='$match.id']", recording)
 
-				def med = net.filebot.util.XPathUtilities.selectNode("medium-list/medium", release)
-				def medium = net.filebot.util.XPathUtilities.selectString("position", med).toInteger()
-				def tracki = net.filebot.util.XPathUtilities.selectString("track-list/track/number", med).toInteger()
+					def med = net.filebot.util.XPathUtilities.selectNode("medium-list/medium", release)
+					def medium = net.filebot.util.XPathUtilities.selectString("position", med).toInteger()
+					def tracki = net.filebot.util.XPathUtilities.selectString("track-list/track/number", med).toInteger()
 
-				def track = new AudioTrack(artist, title, match.album, match.albumArtist, null, match.date, medium, match.mediumCount, tracki, match.trackCount, null)
-				results.put(file, track)
+					def track = new AudioTrack(artist, title, match.album, match.albumArtist, null, match.date, medium, match.mediumCount, tracki, match.trackCount, null)
+					results.put(file, track)
+				} catch  (Exception e) {
+					println("[$filters.group]: match release threw error")
+				}
+
 			} else {
-				fail("[$filters.group]: match release id is null")
+				println("[$filters.group]: match release id is null")
 			}
 		}
 
@@ -217,9 +229,16 @@ public class CustomAcoustID {
 					//def albumArtistId = releasegroup.artists[0].id
 
 					releasegroup.releases.each{ release ->
-						def month = release.date.month
-						def day = release.date.day
-						def year = release.date.year
+						def month = null
+						def day = null
+						def year = null
+
+						if (release.date) {
+							month = release.date.month
+							day = release.date.day
+							year = release.date.year
+						}
+
 						def mediumCount = release.medium_count
 						def country = release.country
 
@@ -290,7 +309,7 @@ public class CustomAcoustID {
 		def audioTrack = allTracks[0]
 		if (audioTrack) {
 			//println 'found'
-			return new AudioTrack(audioTrack.artist, audioTrack.title, audioTrack.album, audioTrack.albumArtist, null, new SimpleDate(audioTrack.year ?: 0, audioTrack.month ?: 0, audioTrack.day?: 0), audioTrack.medium, audioTrack.mediumCount, audioTrack.track, audioTrack.trackCount, audioTrack.id)
+			return new AudioTrack(audioTrack.artist, audioTrack.title, audioTrack.album, audioTrack.albumArtist, null, new SimpleDate(audioTrack.year ?: 0, audioTrack.month ?: 0, audioTrack.day ?: 0), audioTrack.medium, audioTrack.mediumCount, audioTrack.track, audioTrack.trackCount, audioTrack.id, null)
 		}
 		return null
 	}
