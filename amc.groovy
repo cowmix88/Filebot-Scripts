@@ -684,7 +684,8 @@ groups.each{ group, files ->
 
 					files.each{ f ->
 						def file = f.parent + '/.scratch/' + pattern.matcher(f.nameWithoutExtension).replaceAll("E\$1") + '.' + f.extension as File
-						Files.createLink(Paths.get(file.path), Paths.get(f.path));
+						file.getParentFile().mkdirs()
+						Files.createLink(Paths.get(file.path), Paths.get(f.path))
 						renamed.push(file)
 					}
 
