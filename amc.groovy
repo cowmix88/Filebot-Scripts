@@ -92,7 +92,7 @@ def forceAnime = { f ->
 		(
 			f.name =~ /(?i:HorribleSubs)/ || 
 			f.name =~ "[\\(\\[]\\p{XDigit}{8}[\\]\\)]" || 
-			getMediaInfo(file:f, format:'''{media.AudioLanguageList ? media.AudioLanguageList : ' '} {media.TextCodecList ? media.TextCodecList : ' '}''').tokenize().containsAll(['Japanese', 'ASS'])
+			getMediaInfo(file:f, format:'''{media.AudioLanguageList} {media.TextCodecList}''').tokenize().containsAll(['Japanese', 'ASS'])
 		)
 	)
 }
