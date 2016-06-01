@@ -610,7 +610,7 @@ groups.each{ group, files ->
 				def tvdbname = ''
 				def animeTitle = ''
 				def aformat = format.anime
-				def seriesName = group.anime//detectAnimeName(files, true, false)
+				def seriesName = group.anime//detectAnimeName(files)
 				def options = AniDB.search(seriesName, _args.locale)
 				def date = new net.filebot.web.SimpleDate(files.get(0).lastModified());
                 log.info "Using Series Name: ${seriesName}"
