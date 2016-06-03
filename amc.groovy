@@ -403,7 +403,7 @@ if (input.size() == 0) die("No files selected for processing")
 
 
 // group episodes/movies and rename according to XBMC standards
-def groups = input.groupBy{ f ->f
+def groups = input.groupBy{ f ->
 	// skip auto-detection if possible
 	if (forceIgnore(f))
 		return []
