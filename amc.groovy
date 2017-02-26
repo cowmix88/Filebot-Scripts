@@ -92,7 +92,7 @@ def forceAnime = { f ->
 		(
 			f.name =~ /(?i:HorribleSubs)/ || 
 			f.name =~ "[\\(\\[]\\p{XDigit}{8}[\\]\\)]" || 
-			getMediaInfo(file:f, format:'''{media.AudioLanguageList} {media.TextCodecList}''').tokenize().containsAll(['Japanese', 'ASS'])
+			getMediaInfo(f, '{media.AudioLanguageList} {media.TextCodecList}').tokenize().containsAll(['Japanese', 'ASS'])
 		)
 	)
 }
@@ -102,7 +102,7 @@ def forceAnimeMovie = { f ->
 		//parseEpisodeNumber(f.name, false) == null &&
 		//(
 			f.name =~ /(?i:Movie)/  ||
-			getMediaInfo(file:f, format:'{minutes}').toInteger() > 70
+			getMediaInfo(f, '{minutes}').toInteger() > 70
 		//)
 	)
 }
@@ -354,7 +354,7 @@ input = input.findAll{ f -> (f.isVideo() && !tryQuietly{ f.hasExtension('iso') &
 input = input.findAll{ f -> !(relativeInputPath(f) =~ /(?<=\b|_)(?i:sample|trailer|extras|music.video|scrapbook|behind.the.scenes|extended.scenes|deleted.scenes|mini.series|s\d{2}c\d{2}|S\d+EXTRA|\d+xEXTRA|NCED|NCOP|(OP|ED)\p{Digit}\p{Alpha}|Formula.1.\d{4})(?=\b|_)/) }
 
 // ignore video files that don't conform with the file-size and video-length limits
-input = input.findAll{ f -> !(f.isVideo() && ((minFileSize > 0 && f.length() < minFileSize) || (minLengthMS > 0 && tryQuietly{ getMediaInfo(file:f, format:'{duration}').toLong() < minLengthMS }))) }
+input = input.findAll{ f -> !(f.isVideo() && ((minFileSize > 0 && f.length() < minFileSize) || (minLengthMS > 0 && tryQuietly{ getMediaInfo(f, '{duration}').toLong() < minLengthMS }))) }
 
 // ignore subtitles files that are not stored in the same folder as the movie
 input = input.collectNested{ f -> 
@@ -577,7 +577,7 @@ groups.each{ group, files ->
 			if (file.isVideo() && file.size() > 0){
 				subtitles.each{ languageCode ->
 					def langName = net.filebot.Language.getLanguage(languageCode).getName()
-					def subs = getMediaInfo(file:file, format:'''{media.Text_Language_List}''')
+					def subs = getMediaInfo(file, '{media.Text_Language_List}')
 					log.fine("Lookup: Checking for [$langName] embedded sub in [$file.name] => [$subs]")
 					if (!subs.tokenize().contains(langName)) {
 						log.fine("Lookup: No embedded sub found, searching for subtitles.")
@@ -999,7 +999,7 @@ if (unsorted) {
 	if (unsortedFiles.size() > 0) {
 		log.info "Processing ${unsortedFiles.size()} unsorted files"
 		rename(map: unsortedFiles.collectEntries{ original ->
-			[original, new File(_args.output, getMediaInfo(file:original, format:'''Unsorted/{fn}.{ext}'''))]
+			[original, new File(_args.output, getMediaInfo(original, 'Unsorted/{fn}.{ext}'))]
 		})
 	}
 }
@@ -1007,7 +1007,7 @@ if (unsorted) {
 // run program on newly processed files
 if (exec) {
 	getRenameLog().each{ from, to ->
-		def command = getMediaInfo(format: exec, file: to)
+		def command = getMediaInfo(to, exec)
 		log.finest("Execute: $command")
 		execute(command)
 	}
