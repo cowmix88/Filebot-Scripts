@@ -411,7 +411,7 @@ def groups = input.groupBy{ f ->
 		return [music: f.dir.name]
 
 	if (forceAnime(f)){
-		def anime = (detectAnimeName(f) ?: detectAnimeName(input.findAll{ s -> f.dir == s.dir && s.isVideo() }, false, true)) ?: f.name.replaceFirst(/\.[^.]+$/, '').replaceFirst(/-(?![^\(\[]*[\)\]]).+$/, '').findAll(/[a-zA-Z0-9]+(?![^\(\[]*[\)\]])/)
+		def anime = (detectAnimeName(f) ?: detectAnimeName(input.findAll{ s -> f.dir == s.dir && s.isVideo() })) ?: f.name.replaceFirst(/\.[^.]+$/, '').replaceFirst(/-(?![^\(\[]*[\)\]]).+$/, '').findAll(/[a-zA-Z0-9]+(?![^\(\[]*[\)\]])/)
 		if (forceAnimeMovie(f)) {
 			return [anime: anime, mov: detectMovie(f, false)]
 		} else { //if (forceAnimeSeries(f)) {
